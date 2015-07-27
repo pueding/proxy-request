@@ -1,0 +1,22 @@
+{
+  "name": "proxy-request",
+  "version": "0.0.1",
+  "description": "Get request with proxy server",
+  "main": "index.js",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "test": "mocha test"
+  },
+  "author": "Hwansoo Kim <pueding@gmail.com>",
+  "license": "ISC",
+  "engines": {
+    "node": ">=0.8.0"
+  },
+  "dependencies": {
+    "lodash": "^3.10.0",
+    "q": "^1.4.1",
+    "x-ray": "^2.0.2"
+  }
+}
