@@ -25,7 +25,7 @@ describe('ProxyRequest()', function(){
 	});
 
 	it('should return proxy request', function(done){
-		this.timeout( 10000 );
+		this.timeout( 60000 );
 		proxyrequest({ https : true, browser : 'chrome' })
 		.then( function( request ){
 			request( 'https://www.google.com', function( error, response, body ){

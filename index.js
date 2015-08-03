@@ -1,4 +1,5 @@
 'use strict';
+var debug = require( 'debug' )( 'proxy-request' );
 var _ = require( 'lodash' );
 var q = require( 'q' );
 var Xray = require('x-ray');
@@ -24,11 +25,14 @@ var ProxyRequest = function( proxy_options, request_options ){
 
 	getProxyList()(function( error, list ){
 		if( error ){
+			debug( error );
 			deferred.reject( error );
 			return;
 		}
 		if( !list || !list.length ){
-			deferred.reject( new Error( ERROR_MESSAGE.NOT_AVAILABLE ) );
+			error = new Error( ERROR_MESSAGE.NOT_AVAILABLE );
+			debug ( error );
+			deferred.reject( error );
 			return;
 		}
 
@@ -46,10 +50,12 @@ var ProxyRequest = function( proxy_options, request_options ){
 					return true;
 				}
 			});
+			debug( 'Filter https' );
 		}
 		if( hasUserAgentOption( proxy_options ) ){
 			var useragent = USER_AGENT[ proxy_options.browser.toLowerCase() ].useragent;
 			request_options.headers = { 'User-Agent': useragent };	
+			debug( 'Set user agent : %s', request_options.headers );
 		}
 		request_options.followRedirect = true;
     	request_options.maxRedirects = 10;
@@ -95,6 +101,7 @@ var findAvailableProxy = function( params ){
 	var request_options = {};
 	request_options.timeout = 10000;
 	request_options.proxy = 'http://' + selected_proxy.ip + ':' + selected_proxy.port;
+	debug( 'Try to test %s', request_options.proxy );
 	var proxyrequest_test = request.defaults( request_options );
 	proxyrequest_test.get( params.test_url, function( error, response ){
 		if( error || 
@@ -110,6 +117,7 @@ var findAvailableProxy = function( params ){
 			params.request_options = {};
 		}
 		request_options.proxy = 'http://' + selected_proxy.ip + ':' + selected_proxy.port;
+		debug( 'Select %s', request_options.proxy );
 		var proxyrequest = request.defaults( params.request_options );
 		params.deferred.resolve( proxyrequest );
 	});
