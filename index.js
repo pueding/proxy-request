@@ -81,7 +81,7 @@ var ProxyRequest = function( proxy_options, request_options ){
 	}
 	// If cache proxy is not available, get fresh one
 	promise.catch( function(){
-		getProxyList()
+		getProxyList( proxy_options.proxy_source )
 		.then( function( list ){
 			debug( JSON.stringify( list, null, 2 ) );
 			if( !list || !list.length ){
@@ -94,9 +94,7 @@ var ProxyRequest = function( proxy_options, request_options ){
 					if( !proxy_server.https ){
 						return false;
 					}
-					if( proxy_server.https === 'yes' ){
-						return true;
-					}
+					return true;
 				});
 				debug( 'Filter https' );
 			}
@@ -212,11 +210,19 @@ var makeProxyRequest = function( ip, port, request_options ){
 	debug( 'Select %s', request_options.proxy );
 	return request.defaults( request_options );
 };
-var getProxyList = function(){
-	return ultraproxy();
+var getProxyList = function( proxy_source ){
+	console.log( Object.keys( proxy_sources )[ 0 ] );
+	var func = proxy_sources[ Object.keys( proxy_sources )[ 0 ] ];
+	if( !_.isEmpty( proxy_source ) && proxy_sources[ proxy_source ] ){
+		func = proxy_sources[ proxy_source ];
+	}
+	return func();
+
+	
 };
 
-var uxproxyorg = function(){
+var usproxyorg = function(){
+	var deferred = q.defer();
 	x( 'http://www.us-proxy.org', 'table#proxylisttable tr', [{
 	  	ip: 'td:nth-child(1)',
 	  	port: 'td:nth-child(2)',
@@ -226,7 +232,24 @@ var uxproxyorg = function(){
 	  	google: 'td:nth-child(6)',
 	  	https: 'td:nth-child(7)',
 	  	last_checked: 'td:nth-child(8)',
-	}]);
+	}])( function( error, list ){
+		if( error ){
+			deferred.reject( error );
+			return;
+		}
+		_.forEach( list, function( proxy ){
+			if( !proxy.https ){
+				return;
+			}
+			if( proxy.https === 'yes' ){
+				proxy.https = true;
+			}else{
+				proxy.https = false;
+			}
+		});
+		deferred.resolve( list );
+	});
+	return deferred.promise;
 };
 var ultraproxy = function(){
 	var deferred = q.defer();
@@ -251,5 +274,10 @@ var ultraproxy = function(){
 		deferred.resolve( list );
 	});
 	return deferred.promise;
+};
+
+var proxy_sources = {
+	usproxyorg : usproxyorg,
+	ultraproxy : ultraproxy
 };
 module.exports = ProxyRequest;
