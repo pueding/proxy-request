@@ -3,7 +3,7 @@ var proxyrequest = require( '../' );
 describe('ProxyRequest()', function(){
 	it('should return proxy request', function(done){
 		this.timeout( 60000 );
-		proxyrequest({ https : true, browser : 'chrome' })
+		proxyrequest({ https : false, browser : 'chrome' })
 		.then( function( request ){
 			request( 'https://www.airbnb.com/terms', function( error, response, body ){
 				console.log( error );
@@ -26,7 +26,7 @@ describe('ProxyRequest()', function(){
 
 	it('should return proxy request', function(done){
 		this.timeout( 60000 );
-		proxyrequest({ https : true, browser : 'chrome' })
+		proxyrequest({ https : false, browser : 'chrome' })
 		.then( function( request ){
 			request( 'https://www.google.com', function( error, response, body ){
 				console.log( error );
