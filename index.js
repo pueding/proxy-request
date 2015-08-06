@@ -1,6 +1,7 @@
 'use strict';
 var debug = require( 'debug' )( 'proxy-request' );
 var _ = require( 'lodash' );
+var fs = require( 'fs' );
 var q = require( 'q' );
 var Xray = require('x-ray');
 var request = require( 'request' );
@@ -22,7 +23,6 @@ var USER_AGENT = {
 		useragent : 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_9_3) AppleWebKit/537.75.14 (KHTML, like Gecko) Version/7.0.3 Safari/7046A194A'
 	}
 };
-var cache = {};
 
 /**
  * @function ProxyRequest
@@ -32,9 +32,6 @@ var cache = {};
  * @return {Promise}
  */
 var ProxyRequest = function( proxy_options, request_options ){
-	var deferred = q.defer();
-	var promise;
-
 	// Init variables
 	if( !proxy_options ){
 		proxy_options = {};
@@ -57,33 +54,8 @@ var ProxyRequest = function( proxy_options, request_options ){
 	request_options.followRedirect = true;
 	request_options.maxRedirects = 10;
 
-	// Get cache proxy filtering by options - https, browser
-	debug( 'Cache key : %s', getProxyOptionsString( proxy_options ) );
-	var cached = cache[ getProxyOptionsString( proxy_options ) ];
-	if( cached && 
-		cached.ip &&
-		cached.port &&
-		cached.tested_at &&
-		new Date( cached.tested_at + 60 * 1000 ) < new Date() ){
-		promise = testProxy( cached.ip, cached.port, proxy_options.test_url )
-			.then( function( result ){
-				cached.tested_at = new Date();
-				return makeProxyRequest( result.ip, result.port, request_options );
-			})
-			.then( function( request ){
-				deferred.resolve( request );
-			})
-			.catch( function( error ){
-				deferred.reject( error );
-			});
-	}else{
-		promise = q.reject();
-	}
-	// If cache proxy is not available, get fresh one
-	promise.catch( function(){
-		getProxyList( proxy_options.proxy_source )
+	return getProxyList( proxy_options.proxy_source )
 		.then( function( list ){
-			debug( JSON.stringify( list, null, 2 ) );
 			if( !list || !list.length ){
 				var error = new Error( ERROR_MESSAGE.NOT_AVAILABLE );
 				throw error;
@@ -105,32 +77,22 @@ var ProxyRequest = function( proxy_options, request_options ){
 				request_options : request_options,
 				proxy_options : proxy_options
 			});
-		})
-		.then( function( request ){
-			deferred.resolve( request );
-		})
-		.catch( function( error ){
-			debug ( error.message );
-			deferred.reject( error );
 		});
-	});
-	
-	return deferred.promise;
 };
 
-var getProxyOptionsString = function( proxy_options ){
-	var result = 'cache';
-	if( hasHttpsOption( proxy_options ) ){
-		result = result + '|https:on';
-	}else{
-		result = result + '|https:off';
-	}
+// var getProxyOptionsString = function( proxy_options ){
+// 	var result = 'cache';
+// 	if( hasHttpsOption( proxy_options ) ){
+// 		result = result + '|https:on';
+// 	}else{
+// 		result = result + '|https:off';
+// 	}
 
-	if( hasUserAgentOption( proxy_options ) ){
-		result = result + '|useragent:' + proxy_options.browser.toLowerCase();
-	}
-	return result;
-};
+// 	if( hasUserAgentOption( proxy_options ) ){
+// 		result = result + '|useragent:' + proxy_options.browser.toLowerCase();
+// 	}
+// 	return result;
+// };
 var hasHttpsOption = function( proxy_options ){
 	return ( proxy_options && _.isBoolean( proxy_options.https ) && proxy_options.https === true );
 };
@@ -149,20 +111,15 @@ var findAvailableProxy = function( params ){
 	}
 
 	// condition this recursive loop
-	if( params.list.length <= params.index ){
+	if( !params.list || !params.list.length ){
 		params.deferred.reject( new Error( ERROR_MESSAGE.NOT_AVAILABLE ) );
 		return params.deferred.promise;
 	}
 
-	var selected_proxy = params.list[ params.index ];
+	var selected_proxy = params.list[ _.random( 0, params.list.length - 1 ) ];
 	testProxy( selected_proxy.ip, selected_proxy.port, params.proxy_options.test_url )
 	.then( function( result ){
 		debug( 'Found : %s', result.ip + ':' + result.port );
-		cache[ getProxyOptionsString( params.proxy_options ) ] = {
-			ip : result.ip,
-			port : result.port,
-			tested_at : new Date()
-		};
 		params.deferred.resolve( makeProxyRequest( result.ip, result.port, params.request_options ) );
 	})
 	.catch( function( error ){
@@ -182,6 +139,8 @@ var testProxy = function( ip, port, test_url ){
 	}
 	// make test request options
 	var request_options = {};
+	var useragent = USER_AGENT[ 'chrome' ].useragent;
+	request_options.headers = { 'User-Agent': useragent };		
 	request_options.timeout = TEST_REQUEST_TIMEOUT;
 	request_options.proxy = 'http://' + ip + ':' + port;
 	debug( 'Try to test %s', request_options.proxy );
@@ -210,20 +169,67 @@ var makeProxyRequest = function( ip, port, request_options ){
 	debug( 'Select %s', request_options.proxy );
 	return request.defaults( request_options );
 };
-var getProxyList = function( proxy_source ){
-	console.log( Object.keys( proxy_sources )[ 0 ] );
-	var func = proxy_sources[ Object.keys( proxy_sources )[ 0 ] ];
-	if( !_.isEmpty( proxy_source ) && proxy_sources[ proxy_source ] ){
-		func = proxy_sources[ proxy_source ];
-	}
-	return func();
 
-	
+var proxy_list_cache = {};
+var getProxyList = function( proxy_source_name ){
+	// Init params
+	if( !proxy_source_name || !proxy_sources[ proxy_source_name ] ){
+		proxy_source_name = Object.keys( proxy_sources )[ 0 ];
+	}
+	// Load cache proxy
+	var cache = proxy_list_cache[ proxy_source_name ];
+	if( cache &&
+		cache.list &&
+		new Date( cache.tested_at + 60 * 1000 ) > new Date() ){
+		debug( 'cached data : %s', proxy_source_name )
+		return q( cache.list );
+	}
+
+	var func = proxy_sources[ proxy_source_name ];
+	return func()
+		.then( function( list ){
+			debug( JSON.stringify( list, null, 2 ) );
+			proxy_list_cache[ proxy_source_name ] = {
+				tested_at : (new Date()).getTime(),
+				list : list
+			};
+			return list;
+		});
 };
 
 var usproxyorg = function(){
 	var deferred = q.defer();
 	x( 'http://www.us-proxy.org', 'table#proxylisttable tr', [{
+	  	ip: 'td:nth-child(1)',
+	  	port: 'td:nth-child(2)',
+	  	code: 'td:nth-child(3)',
+	  	country: 'td:nth-child(4)',
+	  	anonymity: 'td:nth-child(5)',
+	  	google: 'td:nth-child(6)',
+	  	https: 'td:nth-child(7)',
+	  	last_checked: 'td:nth-child(8)',
+	}])( function( error, list ){
+		if( error ){
+			deferred.reject( error );
+			return;
+		}
+		_.forEach( list, function( proxy ){
+			if( !proxy.https ){
+				return;
+			}
+			if( proxy.https === 'yes' ){
+				proxy.https = true;
+			}else{
+				proxy.https = false;
+			}
+		});
+		deferred.resolve( list );
+	});
+	return deferred.promise;
+};
+var freeproxylist = function(){
+	var deferred = q.defer();
+	x( 'http://free-proxy-list.net', 'table#proxylisttable tr', [{
 	  	ip: 'td:nth-child(1)',
 	  	port: 'td:nth-child(2)',
 	  	code: 'td:nth-child(3)',
@@ -275,9 +281,24 @@ var ultraproxy = function(){
 	});
 	return deferred.promise;
 };
+var manuelproxy = function(){
+	var deferred = q.defer();
+	fs.readFile( './data/proxy1.json',{ encoding : 'utf8' } ,function( error, data ){
+		if( error ){
+			deferred.reject( error );
+			return;
+		}
+		deferred.resolve( JSON.parse( data ) );
+		return;
+	});
+	return deferred.promise;	
+};
 
 var proxy_sources = {
+	ultraproxy : ultraproxy,
 	usproxyorg : usproxyorg,
-	ultraproxy : ultraproxy
+	freeproxylist : freeproxylist,
+	manuelproxy : manuelproxy,
+	
 };
 module.exports = ProxyRequest;
